@@ -3,7 +3,7 @@ title: "Measure before changing the harness"
 date: 2026-11-24
 authors: ["Eric Sun"]
 summary: "Across four assignments my agent kept hitting a limit I had not planned for. This post is about finding those limits, about the bugs in my own harness that I blamed on the model, and about what a harness can and cannot do for a model."
-tags: ["harness", "evaluation", "serving"]
+tags: ["agent-harness", "evaluation", "serving"]
 draft: false
 toc: true
 ---
@@ -12,9 +12,9 @@ Over the last two months I built a coding agent and kept changing it as the assi
 
 <!--more-->
 
-## What are the four assignments 
+## What are the four assignments
 
-There are four assignments in total. Starting with a simple harness with API calls, to AI serving compared with other students on a leaderboard, the whole course provided me an opportunity to practice real LLM serving and harness design.
+There are four assignments in total. The assignments went from a simple harness that calls a model API to serving a model myself and competing with other students on a leaderboard. The whole course provided me an opportunity to practice real LLM serving and harness design.
 
 Assignment 2 is the first minimum working version of the harness. The agent was given a real code repository and a description of a bug or a missing feature, and it had to change the code until a set of hidden tests passed. I paid for the model by the token through an API of the course.
 
@@ -22,7 +22,7 @@ Assignment 3 kept the same kind of task and added a leaderboard. There were 26 h
 
 In Assignment 4, I had to serve an open model myself on a single GPU and run the same agent against it. Now nobody charged me per token, but I have to manage well between the tasks, since I only have one single GPU and my work was ranked by the efficiency of solving all the tasks.
 
-Assignment 5 changed the tasks. The agent was pointed at 89 general terminal tasks, things like building a piece of software, setting up a service or writing a small program to a specification. Each task had its own time limit. The biggest change was that the agent no longer got told whether its answer passed. It had one chance to say that it was done, and it was graded on whatever it left behind.
+Assignment 5 changed the tasks. The agent was pointed at 89 general terminal tasks, things like building a piece of software, setting up a service or writing a small program to a specification. Each task had its own time limit. The biggest change was that the agent no longer got told whether its answer passed. It had one chance to say that it was done, and it was graded on whatever it left behind. The leaderboard also ran the 26 repository tasks from the earlier assignments next to the 89 terminal tasks. The Assignment 5 numbers in this post are for the 89 terminal tasks.
 
 ## What I learned
 
@@ -38,9 +38,9 @@ The rest of this post goes through these one at a time.
 
 ## Something unexpected always ran out
 
-In Assignment 2, I assumed the long conversations were my problem. An agent sends its whole history back to the model on every step, so the context keeps growing and I spent a while worrying about how to shrink it. However, when I finally looked at the logs, about 98% of every prompt was being served from the provider's cache. That means the long history cost almost nothing. What actually took the time was the number of steps the agent took and how long the model reasoned inside each step. I had spent too much time trimming the cheap part (cache).
+In Assignment 2, I assumed the long conversations were my problem. An agent sends its whole history back to the model on every step, so the context keeps growing and I spent a while worrying about how to shrink it. However, when I finally looked at the logs, about 98% of every prompt was being served from the provider's cache. Cached tokens are not free, but the server does not have to read them again, so the long history was not what made my runs slow. What actually took the time was the number of steps the agent took and how long the model reasoned inside each step. I had spent too much time trimming the part that was already cached.
 
-In Assignment 3, I thought the thing to save was money on the tasks I solved, but the leaderboard showed me the actual cost is about the tasks I didn't solve. On one of my builds a solved task took 16.8 minutes on average, and a failed task took 29.0 minutes. A task that is going to fail does not stop early. It keeps going until some limit stops it, and I pay for all of it. So the bill was set by the failures, and making the successful tasks cheaper hardly changed it.
+In Assignment 3, I thought the thing to save was time on the tasks I solved, but the leaderboard showed me that the time went to the tasks I didn't solve. On one of my builds, which solved 10 of the 26 tasks, a solved task took 16.8 minutes on average, and a failed task took 29.0 minutes. A task that is going to fail does not stop early. It keeps going until some limit stops it, and that time still counts. So about three quarters of the task time in that run went to the 16 failures, and making the successful tasks faster hardly changed it.
 
 Assignment 4 is the best example I have. I was serving the model myself, and my first run had all 25 practice tasks open at the same time, because that is how I had always run it against the API. The run was painfully slow. When I added it up, 88% of the time in every task was spent waiting for the model to answer.
 
@@ -80,7 +80,7 @@ None of these fixes knows anything about a particular task. They are all places 
 
 ## Asking the model to check its work is not the same as making it check
 
-In Assignment 2 my agent had a tool called `done`, and the description of that tool politely asked the model to verify its work before calling it. However, it happened a time when a task was accepted with half of the work missing. The model had read the request to verify and had simply decided that it was finished.
+In Assignment 2 my agent had a tool called `done`, and the description of that tool politely asked the model to verify its work before calling it. However, at one point a task was accepted with half of the work missing. The model had read the request to verify and had simply decided that it was finished.
 
 So I moved the check out of the instructions and into the code. The harness now refused `done` unless there was an actual change to the repository and the tests had been run after the last edit. One task that had passed only once in five runs passed every time after that. I changed two other things in the same step, so I cannot give the check all of the credit, but the direction was clear to me. A rule that lives in a prompt is a suggestion, and a rule that lives in code is a rule.
 
@@ -96,7 +96,7 @@ The previous two sections say that the harness was often the problem. This secti
 
 A model has some set of tasks that it is able to solve. A harness with bugs loses part of that set, because the model is working from wrong information or is being cut off. Fixing the harness gives those tasks back. However, once the harness is giving the model correct information and enough room to work, the harness has done its job. Adding more steps around the model does not make the model more capable.
 
-I learned this in Assignment 3. I became convinced that a more elaborate harness would be a better one. I built a version with a planner that wrote a plan first, a second step that wrote tests, a reviewer that read the result, and a retry on the stronger model when things went badly. It solved 13 tasks. However, it cost $0.77 for every task it solved, and it ran into the spending limit before it had finished the run. A much simpler version of the same harness solved 10 tasks at $0.145 each.
+I learned this in Assignment 3. I became convinced that a more elaborate harness would be a better one. I built a version with a planner that wrote a plan first, a second step that wrote tests, a reviewer that read the result, and a retry on the stronger model when things went badly. It solved 13 tasks. However, it cost $0.77 for every task it solved, and it ran into the spending limit before it had finished the run. A much simpler version of the same harness solved 10 tasks at $0.145 each. This comparison is not a clean one, because the elaborate version also used the stronger model for its retries. So the extra solves and the extra cost cannot be put on the machinery alone.
 
 ![Scatter plot of 21 Assignment 3 runs on the leaderboard, with tasks solved out of 26 on the horizontal axis and dollars per solved task on the vertical axis. Versions using only the Standard model sit between 7 and 12 solves at 15 to 24 cents. Versions using the Expert model reach 16 solves and cost between 36 and 78 cents.](fig3_a3_cost.svg "Every finished Assignment 3 leaderboard run of mine. Blue points used only the cheaper model, and orange points used the stronger model for at least part of the work.")
 
